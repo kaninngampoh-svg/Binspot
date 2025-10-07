@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bin Spot - ค้นหาถังขยะใกล้คุณ</title>
+  <style>
+    body {
+      box-sizing: border-box;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(135deg, #1a4d3a 0%, #2d5a3d 50%, #3d6b4d 100%);
+      margin: 0;
+      min-height: 100vh;
+      padding: 0;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+
+    .header {
+      text-align: center;
+      margin-bottom: 20px;
+      background: rgba(255, 255, 255, 0.95);
+      padding: 20px;
+      border-radius: 15px;
+      border: 3px solid #2d5a3d;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+    }
+
+    .header h1 {
+      font-size: 2rem;
+      color: #1a4d3a;
+      margin: 0 0 10px 0;
+    }
+
+    .header p {
+      font-size: 1rem;
+      color: #2d5a3d;
+      font-weight: 600;
+      margin: 0;
+    }
+
+    .map-container {
+      height: 70vh;
+      min-height: 400px;
+      border-radius: 15px;
+      border: 4px solid #2d5a3d;
+      overflow: hidden;
+      position: relative;
+    }
+
+    #map {
+      width: 100%;
+      height: 100%;
+    }
+
+    .custom-map-control-button {
+      background: white;
+      border: 2px solid #2d5a3d;
+      border-radius: 8px;
+      padding: 10px 15px;
+      margin: 10px;
+      font-size: 14px;
+      font-weight: bold;
+      cursor: pointer;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+      color: #2d5a3d;
+      transition: all 0.3s ease;
+    }
+
+    .custom-map-control-button:hover {
+      background: #f0f8f0;
+      transform: translateY(-1px);
+    }
+
+    .info-panel {
+      background: rgba(255, 255, 255, 0.95);
+      padding: 15px;
+      border-radius: 10px;
+      margin-top: 15px;
+      border: 2px solid #2d5a3d;
+      box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+    }
+
+    .bin-count {
+      font-size: 1.1rem;
+      color: #1a4d3a;
+      font-weight: bold;
+      text-align: center;
+    }
+
+    .loading {
+      text-align: center;
+      color: #2d5a3d;
+      font-style: italic;
+    }
+
+    @media (max-width: 768px) {
+      .container {
+        padding: 10px;
+      }
+      
+      .header h1 {
+        font-size: 1.5rem;
+      }
+      
+      .map-container {
+        height: 60vh;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>🗑️ Bin Spot</h1>
+      <p>ค้นหาถังขยะใกล้มหาวิทยาลัยราชภัฏจอมบึง</p>
+    </div>
+
+    <div class="map-container">
+      <div id="map"></div>
+    </div>
+
+    <div class="info-panel">
+      <div class="bin-count">📊 พบถังขยะทั้งหมด: <span id="binCount">15</span> จุด</div>
+    </div>
+  </div>
+
+  <script>
+    let map;
+    let userMarker;
+    let userLocation = null;
+
+    function initMap() {
+      // พิกัดมหาวิทยาลัยราชภัฏจอมบึง
+      const chomBuengUni = { lat: 13.62153, lng: 99.58899 };
+
+      // สร้างแผนที่
+      map = new google.maps.Map(document.getElementById("map"), {
+        zoom: 17,
+        center: chomBuengUni,
+        gestureHandling: "greedy",
+        styles: [
+          {
+            featureType: "poi",
+            elementType: "labels",
+            stylers: [{ visibility: "off" }]
+          }
+        ]
+      });
+
+      // สร้าง DirectionsService และ DirectionsRenderer
+      const directionsService = new google.maps.DirectionsService();
+      const directionsRenderer = new google.maps.DirectionsRenderer({
+        suppressMarkers: true,
+        polylineOptions: {
+          strokeColor: "#ff4444",
+          strokeWeight: 5,
+          strokeOpacity: 0.8
+        }
+      });
+      directionsRenderer.setMap(map);
+      
+      // เก็บ reference ไว้ใช้ global
+      window.directionsRenderer = directionsRenderer;
+
+      // ปักหมุดมหาวิทยาลัย
+      new google.maps.Marker({
+        position: chomBuengUni,
+        map,
+        title: "มหาวิทยาลัยราชภัฏจอมบึง",
+        icon: {
+          url: "data:image/svg+xml;charset=UTF-8," + encodeURIComponent(`
+            <svg width="32" height="32" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+              <circle cx="16" cy="16" r="12" fill="#2d5a3d" stroke="white" stroke-width="2"/>
+              <text x="16" y="20" text-anchor="middle" fill="white" font-size="16">🏫</text>
+            </svg>
+          `),
+          scaledSize: new google.maps.Size(32, 32)
+        }
+      });
+
+      // พิกัดถังขยะ
+      const bins = [
+        { lat: 13.620221, lng: 99.588116, title: "ถังขยะ ศูนย์ภาษา" },
+        { lat: 13.620478, lng: 99.587010, title: "ถังขยะ ยิม1" },
+        { lat: 13.620527, lng: 99.586165, title: "ถังขยะ 7-11" },
+        { lat: 13.619539, lng: 99.586575, title: "ถังขยะ ตึกดนตรี" },
+        { lat: 13.619505, lng: 99.587371, title: "ถังขยะ ตึกจัดการ" },
+        { lat: 13.619405, lng: 99.587827, title: "ถังขยะ ห้องสมุด" },
+        { lat: 13.619901, lng: 99.588831, title: "ถังขยะ ตึกอุศใหม่" },
+        { lat: 13.618796, lng: 99.586072, title: "ถังขยะ โรงเรียนอนุบาล" },
+        { lat: 13.622638, lng: 99.587787, title: "ถังขยะ ตึกวิทย์" },
+        { lat: 13.621831, lng: 99.588871, title: "ถังขยะ สวนราชพฤกษ์" },
+        { lat: 13.621859, lng: 99.589493, title: "ถังขยะ คุรุ" },
+        { lat: 13.621558, lng: 99.589905, title: "ถังขยะ คุรุ2" },
+        { lat: 13.621230, lng: 99.590128, title: "ถังขยะ ตึกสาขาการบริหาร" },
+        { lat: 13.620959, lng: 99.589259, title: "ถังขยะ ป้ายรถตู้" },
+        { lat: 13.621525, lng: 99.589145, title: "ถังขยะ สาขาคณิต" }
+      ];
+
+      // วางหมุดถังขยะ
+      bins.forEach((bin, index) => {
+        const marker = new google.maps.Marker({
+          position: { lat: bin.lat, lng: bin.lng },
+          map,
+          title: bin.title,
+          icon: {
+            url: "data:image/svg+xml;charset=UTF-8," + encodeURIComponent(`
+              <svg width="28" height="28" viewBox="0 0 28 28" xmlns="http://www.w3.org/2000/svg">
+                <circle cx="14" cy="14" r="10" fill="#4285f4" stroke="white" stroke-width="2"/>
+                <text x="14" y="18" text-anchor="middle" fill="white" font-size="14">🗑️</text>
+              </svg>
+            `),
+            scaledSize: new google.maps.Size(28, 28)
+          }
+        });
+
+        // เพิ่ม InfoWindow สำหรับแต่ละถังขยะ
+        const infoWindow = new google.maps.InfoWindow({
+          content: `
+            <div style="padding: 10px; text-align: center;">
+              <h3 style="margin: 0 0 5px 0; color: #1a4d3a;">${bin.title}</h3>
+              <p style="margin: 0; color: #666;">คลิกเพื่อดูเส้นทาง</p>
+            </div>
+          `
+        });
+
+        marker.addListener('click', () => {
+          if (userLocation) {
+            // ล้างเส้นทางเก่า
+            directionsRenderer.setDirections({routes: []});
+            
+            // คำนวณและแสดงเส้นทาง
+            directionsService.route(
+              {
+                origin: userLocation,
+                destination: { lat: bin.lat, lng: bin.lng },
+                travelMode: google.maps.TravelMode.WALKING,
+              },
+              (result, status) => {
+                if (status === "OK") {
+                  directionsRenderer.setDirections(result);
+                  
+                  // แสดงปุ่มล้างเส้นทาง
+                  if (window.clearDirectionsButton) {
+                    window.clearDirectionsButton.style.display = "block";
+                  }
+                  
+                  // แสดงข้อมูลเส้นทาง
+                  const route = result.routes[0].legs[0];
+                  infoWindow.setContent(`
+                    <div style="padding: 15px; text-align: center; min-width: 200px;">
+                      <h3 style="margin: 0 0 10px 0; color: #1a4d3a;">${bin.title}</h3>
+                      <div style="background: #f0f8f0; padding: 10px; border-radius: 8px; margin: 10px 0;">
+                        <p style="margin: 5px 0; color: #2d5a3d; font-weight: bold;">📏 ระยะทาง: ${route.distance.text}</p>
+                        <p style="margin: 5px 0; color: #2d5a3d; font-weight: bold;">⏱️ เวลาเดิน: ${route.duration.text}</p>
+                      </div>
+                      <div style="color: #666; font-size: 12px; margin-top: 10px;">
+                        💡 ใช้ปุ่ม "🗑️ ล้างเส้นทาง" เพื่อลบเส้นทาง
+                      </div>
+                    </div>
+                  `);
+                  infoWindow.open(map, marker);
+                } else {
+                  infoWindow.setContent(`
+                    <div style="padding: 15px; text-align: center;">
+                      <h3 style="margin: 0 0 10px 0; color: #1a4d3a;">${bin.title}</h3>
+                      <p style="color: #ff4444;">ไม่สามารถหาเส้นทางได้</p>
+                    </div>
+                  `);
+                  infoWindow.open(map, marker);
+                }
+              }
+            );
+          } else {
+            infoWindow.setContent(`
+              <div style="padding: 15px; text-align: center;">
+                <h3 style="margin: 0 0 10px 0; color: #1a4d3a;">${bin.title}</h3>
+                <p style="color: #ff4444;">กรุณาหาตำแหน่งของคุณก่อน</p>
+                <p style="color: #666; font-size: 12px;">คลิกปุ่ม "📍 ตำแหน่งของฉัน"</p>
+              </div>
+            `);
+            infoWindow.open(map, marker);
+          }
+        });
+      });
+
+      // ปุ่มหาตำแหน่งผู้ใช้
+      const locationButton = document.createElement("button");
+      locationButton.textContent = "📍 ตำแหน่งของฉัน";
+      locationButton.classList.add("custom-map-control-button");
+      
+      locationButton.addEventListener("click", () => {
+        if (navigator.geolocation) {
+          locationButton.textContent = "🔄 กำลังค้นหา...";
+          locationButton.disabled = true;
+          
+          navigator.geolocation.getCurrentPosition(
+            (position) => {
+              userLocation = {
+                lat: position.coords.latitude,
+                lng: position.coords.longitude,
+              };
+
+              // ลบหมุดเก่าถ้ามี
+              if (userMarker) {
+                userMarker.setMap(null);
+              }
+
+              // สร้างหมุดตำแหน่งผู้ใช้
+              userMarker = new google.maps.Marker({
+                position: userLocation,
+                map,
+                title: "ตำแหน่งของคุณ",
+                icon: {
+                  url: "data:image/svg+xml;charset=UTF-8," + encodeURIComponent(`
+                    <svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                      <circle cx="12" cy="12" r="8" fill="#ff4444" stroke="white" stroke-width="2"/>
+                      <circle cx="12" cy="12" r="3" fill="white"/>
+                    </svg>
+                  `),
+                  scaledSize: new google.maps.Size(24, 24)
+                }
+              });
+
+              // ย้ายแผนที่ไปยังตำแหน่งผู้ใช้
+              map.setCenter(userLocation);
+              map.setZoom(18);
+              
+              locationButton.textContent = "✅ พบตำแหน่งแล้ว";
+              locationButton.disabled = false;
+              
+              // แสดงข้อความยืนยัน
+              const infoWindow = new google.maps.InfoWindow({
+                content: `
+                  <div style="padding: 15px; text-align: center;">
+                    <h3 style="margin: 0 0 10px 0; color: #1a4d3a;">🎯 พบตำแหน่งของคุณแล้ว!</h3>
+                    <p style="margin: 5px 0; color: #666;">ตอนนี้คุณสามารถคลิกที่ถังขยะสีน้ำเงิน</p>
+                    <p style="margin: 5px 0; color: #666;">เพื่อดูเส้นทางและระยะทางได้</p>
+                    <div style="background: #f0f8f0; padding: 8px; border-radius: 5px; margin-top: 10px;">
+                      <small style="color: #2d5a3d;">💡 เคล็ดลับ: ลองคลิกถังขยะที่ใกล้ที่สุด!</small>
+                    </div>
+                  </div>
+                `
+              });
+              infoWindow.open(map, userMarker);
+              
+              setTimeout(() => {
+                infoWindow.close();
+                locationButton.textContent = "📍 ตำแหน่งของฉัน";
+              }, 5000);
+            },
+            (error) => {
+              locationButton.textContent = "❌ ไม่พบตำแหน่ง";
+              locationButton.disabled = false;
+              
+              let errorMessage = "ไม่สามารถหาตำแหน่งของคุณได้";
+              
+              switch(error.code) {
+                case error.PERMISSION_DENIED:
+                  errorMessage = "กรุณาอนุญาตการเข้าถึงตำแหน่งในเบราว์เซอร์";
+                  break;
+                case error.POSITION_UNAVAILABLE:
+                  errorMessage = "ข้อมูลตำแหน่งไม่พร้อมใช้งาน";
+                  break;
+                case error.TIMEOUT:
+                  errorMessage = "หมดเวลาในการค้นหาตำแหน่ง กรุณาลองใหม่";
+                  break;
+              }
+              
+              alert(errorMessage);
+              
+              setTimeout(() => {
+                locationButton.textContent = "📍 ตำแหน่งของฉัน";
+              }, 3000);
+            },
+            {
+              enableHighAccuracy: true,
+              timeout: 10000,
+              maximumAge: 60000
+            }
+          );
+        } else {
+          alert("เบราว์เซอร์ของคุณไม่รองรับการหาตำแหน่ง\nกรุณาใช้เบราว์เซอร์ที่ทันสมัยกว่านี้");
+        }
+      });
+
+      map.controls[google.maps.ControlPosition.TOP_CENTER].push(locationButton);
+
+      // ปุ่มรีเซ็ตมุมมอง
+      const resetButton = document.createElement("button");
+      resetButton.textContent = "🏫 กลับไปมหาวิทยาลัย";
+      resetButton.classList.add("custom-map-control-button");
+      
+      resetButton.addEventListener("click", () => {
+        map.setCenter(chomBuengUni);
+        map.setZoom(17);
+      });
+
+      map.controls[google.maps.ControlPosition.TOP_CENTER].push(resetButton);
+
+      // ปุ่มล้างเส้นทาง
+      const clearDirectionsButton = document.createElement("button");
+      clearDirectionsButton.textContent = "🗑️ ล้างเส้นทาง";
+      clearDirectionsButton.classList.add("custom-map-control-button");
+      clearDirectionsButton.style.display = "none"; // ซ่อนไว้ก่อน
+      
+      clearDirectionsButton.addEventListener("click", () => {
+        clearDirections();
+        clearDirectionsButton.style.display = "none";
+      });
+
+      map.controls[google.maps.ControlPosition.TOP_CENTER].push(clearDirectionsButton);
+      
+      // เก็บ reference ของปุ่มไว้ใช้ภายหลัง
+      window.clearDirectionsButton = clearDirectionsButton;
+    }
+
+    // ฟังก์ชันล้างเส้นทาง
+    function clearDirections() {
+      if (window.directionsRenderer) {
+        window.directionsRenderer.setDirections({routes: []});
+      }
+      if (window.clearDirectionsButton) {
+        window.clearDirectionsButton.style.display = "none";
+      }
+    }
+
+    // ทำให้ฟังก์ชันเป็น global เพื่อให้เรียกใช้จาก HTML ได้
+    window.clearDirections = clearDirections;
+
+    // โหลด Google Maps API
+    function loadGoogleMaps() {
+      const script = document.createElement('script');
+      script.src = 'https://maps.googleapis.com/maps/api/js?key=AIzaSyBRnMK6VBkguPCKb1akiihG3ugBPDRxYVk&callback=initMap';
+      script.async = true;
+      script.defer = true;
+      document.head.appendChild(script);
+    }
+
+    // เริ่มโหลดแผนที่เมื่อหน้าเว็บโหลดเสร็จ
+    window.addEventListener('load', loadGoogleMaps);
+  </script>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'987060b104218957',t:'MTc1OTIwMDI1OS4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+</html>
